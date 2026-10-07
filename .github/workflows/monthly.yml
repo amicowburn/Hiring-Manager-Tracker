@@ -1,0 +1,53 @@
+name: Monthly Hiring Manager Search
+
+on:
+  # 3rd of the month, so it never shares a morning with the alumni run on the 1st.
+  schedule:
+    - cron: '0 9 3 * *'
+  workflow_dispatch:
+    inputs:
+      company:
+        description: 'Search just this company (leave blank for every company that is due)'
+        required: false
+        default: ''
+
+jobs:
+  search:
+    runs-on: ubuntu-latest
+    timeout-minutes: 300
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.9'
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+
+      - name: Create credentials.json from secret
+        env:
+          GOOGLE_SHEETS_CREDENTIALS: ${{ secrets.GOOGLE_SHEETS_CREDENTIALS }}
+        run: printf '%s' "$GOOGLE_SHEETS_CREDENTIALS" > credentials.json
+
+      # No usage-tracker cache, unlike the alumni workflow: spend is read
+      # from the sheet's Search Log tab, which survives between runs.
+      - name: Check keys
+        env:
+          APIFY_TOKEN: ${{ secrets.APIFY_TOKEN }}
+          GOOGLE_SHEET_ID: ${{ secrets.GOOGLE_SHEET_ID }}
+          GOOGLE_SHEETS_CREDENTIALS_FILE: credentials.json
+        run: python find_hiring_managers.py --check-keys
+
+      - name: Search
+        env:
+          APIFY_TOKEN: ${{ secrets.APIFY_TOKEN }}
+          GOOGLE_SHEET_ID: ${{ secrets.GOOGLE_SHEET_ID }}
+          GOOGLE_SHEETS_CREDENTIALS_FILE: credentials.json
+          COMPANY: ${{ github.event.inputs.company }}
+        run: python find_hiring_managers.py ${COMPANY:+--company "$COMPANY"}
