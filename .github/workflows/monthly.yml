@@ -1,9 +1,11 @@
 name: Monthly Hiring Manager Search
 
 on:
-  # 3rd of the month, so it never shares a morning with the alumni run on the 1st.
+  # The 5th: this Apify account's free allowance (US$5, and HarvestAPI's 10
+  # free runs) resets on the 4th, so the 3rd would still be in the previous
+  # cycle. Also clear of the alumni run on the 1st.
   schedule:
-    - cron: '0 9 3 * *'
+    - cron: '0 9 5 * *'
   workflow_dispatch:
     inputs:
       company:

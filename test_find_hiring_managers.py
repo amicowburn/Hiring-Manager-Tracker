@@ -655,7 +655,32 @@ class TestSearcher(unittest.TestCase):
                                       {"id": "c", "startedAt": "2026-09-30T23:00:00Z"}]}}
         details = {"a": {"data": {"statusMessage": m.ApifyClient.REFUSED}}, "b": {"data": {"statusMessage": "success"}}}
         c._request = lambda method, path, **kw: listing if "/runs?" in path else details[path.rsplit("/", 1)[1]]
-        self.assertEqual(c.runs_this_month(m.datetime(2026, 10, 7, tzinfo=m.timezone.utc)), 1)
+        self.assertEqual(c.runs_this_month(start="2026-10-01"), 1)
+
+    def test_runs_counted_from_apify_usage_cycle(self):
+        # This account's cycle runs from the 4th: a run on the 3rd belongs to the previous cycle.
+        c = m.ApifyClient("t", session=MagicMock(), sleep=lambda s: None)
+        listing = {"data": {"items": [{"id": "a", "startedAt": "2026-11-05T09:00:00Z"},
+                                      {"id": "b", "startedAt": "2026-11-03T09:00:00Z"}]}}
+        limits = {"data": {"monthlyUsageCycle": {"startAt": "2026-11-04T00:00:00.000Z"}}}
+
+        def fake(method, path, **kw):
+            if path == "/users/me/limits":
+                return limits
+            if "/runs?" in path:
+                return listing
+            return {"data": {"statusMessage": "success"}}
+        c._request = fake
+        self.assertEqual(c.cycle_start(), "2026-11-04T00:00:00.000Z")
+        self.assertEqual(c.runs_this_month(), 1)
+
+    def test_cycle_start_falls_back_to_calendar_month(self):
+        c = m.ApifyClient("t", session=MagicMock(), sleep=lambda s: None)
+
+        def boom(method, path, **kw):
+            raise m.ApifyError("down")
+        c._request = boom
+        self.assertEqual(c.cycle_start(m.datetime(2026, 12, 9, tzinfo=m.timezone.utc)), "2026-12-01")
 
     def test_nobody_found_stays_due(self):
         apify = self.apify(("SUCCEEDED", []), ("SUCCEEDED", []))

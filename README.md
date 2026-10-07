@@ -85,8 +85,9 @@ stays on the free plan, so the script asks for 3 people per company, 8
 companies per run, counts this month's runs on Apify before starting, does
 every company's first search before any fallback, and stops cleanly when
 the runs are used up. Companies it didn't reach stay due for next month.
-It is not documented whether the 10 runs reset monthly; the run on 3 Nov
-2026 will show.
+It is not documented whether the 10 runs reset monthly; the run on 5 Nov
+2026 will show. Runs are counted from the start of Apify's usage cycle
+(the 4th for this account), not the calendar month.
 
 Pricing on Apify's free plan (7 Oct 2026): US$0.003 per profile plus a
 US$0.02 start fee per company searched. With 3 profiles per company that is
@@ -135,7 +136,7 @@ up as people marked "Works at X now, not Y" and nothing written.
 
 ## GitHub Action
 
-`.github/workflows/monthly.yml` runs at 09:00 UTC on the 3rd of each month
+`.github/workflows/monthly.yml` runs at 09:00 UTC on the 5th of each month (the Apify free allowance resets on the 4th for this account)
 and can be run by hand from the Actions tab (optionally for one company).
 Repository secrets:
 

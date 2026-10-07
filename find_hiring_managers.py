@@ -756,10 +756,25 @@ class ApifyClient:
                 self._request("POST", f"/actor-runs/{run_id}/abort")
                 raise ApifyError(f"run {run_id} still running after {timeout_secs}s; aborted")
 
-    def runs_this_month(self, now: datetime | None = None) -> int:
-        """Runs of this actor this calendar month (UTC) that HarvestAPI counts: every run it didn't refuse."""
+    def cycle_start(self, now: datetime | None = None) -> str:
+        """
+        Start of the account's current Apify usage cycle (ISO, UTC). Apify's free
+        allowance runs from the account's signup day, not the calendar month: the
+        4th to the 3rd for this account (seen 8 Oct 2026). Falls back to the first
+        of the calendar month if Apify doesn't say.
+        """
         now = now or datetime.now(timezone.utc)
-        start = f"{now.year:04d}-{now.month:02d}-01"
+        try:
+            start = self._request("GET", "/users/me/limits")["data"]["monthlyUsageCycle"]["startAt"]
+            if isinstance(start, str) and start[:4].isdigit():
+                return start
+        except (ApifyError, KeyError, TypeError):
+            pass
+        return f"{now.year:04d}-{now.month:02d}-01"
+
+    def runs_this_month(self, now: datetime | None = None, start: str | None = None) -> int:
+        """Runs of this actor in the current usage cycle that HarvestAPI counts: every run it didn't refuse."""
+        start = start or self.cycle_start(now)
         used, offset = 0, 0
         while True:
             page = self._request("GET", f"/acts/{self.ACTOR}/runs?desc=1&limit=100&offset={offset}")["data"]
@@ -1408,7 +1423,7 @@ def run(cfg: Config, only: str = "", dry_run: bool = False) -> int:
     runs_left = None
     if cfg.free_plan and apify:
         runs_left = max(0, cfg.free_runs_per_month - apify.runs_this_month())
-        log.info("Apify free plan: %d of %d HarvestAPI runs left this month.", runs_left, cfg.free_runs_per_month)
+        log.info("Apify free plan: %d of %d HarvestAPI runs left this usage cycle.", runs_left, cfg.free_runs_per_month)
 
     if dry_run:
         for c in todo:
