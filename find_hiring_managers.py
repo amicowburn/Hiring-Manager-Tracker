@@ -1191,6 +1191,12 @@ class BudgetReached(Exception):
 class RunLimitReached(BudgetReached):
     """The Apify free plan's monthly runs are used up; the rest waits for next month."""
 
+    def __init__(self, message: str, refused: bool = False):
+        super().__init__(message)
+        # True when HarvestAPI itself refused a run the script's count said was allowed:
+        # the count is wrong (e.g. the free runs don't reset monthly) and needs a person.
+        self.refused = refused
+
 
 class Searcher:
     """
@@ -1206,6 +1212,8 @@ class Searcher:
         self.cfg, self.sheet, self.apify, self.spent = cfg, sheet, apify, spent
         # None: no run limit (paid plan). Otherwise runs HarvestAPI still allows this month.
         self.runs_left = runs_left
+        self.runs_done = 0       # runs that finished and delivered (possibly zero) people
+        self.profiles_found = 0  # people delivered across those runs
         self._rows: list | None = None  # the Hiring Managers tab, read once and kept current
 
     def search(self, companies: list, titles: list, stage: str, function_ids: list | None = None) -> dict:
@@ -1239,11 +1247,13 @@ class Searcher:
                 cost = ApifyClient.run_cost(run, [], 0)
                 log_ws.update([["refused", "", cost, run_id, "HarvestAPI free-plan run limit reached"]],
                               f"C{log_row}:G{log_row}", value_input_option="RAW")
-                raise RunLimitReached("HarvestAPI refused the run: free-plan run limit reached")
+                raise RunLimitReached("HarvestAPI refused the run: free-plan run limit reached", refused=True)
             cost = ApifyClient.run_cost(run, raw, len(companies))
             if run.get("status") != "SUCCEEDED":
                 raise ApifyError(f"run {run_id} ended {run.get('status')}")
             log_ws.update([["succeeded", len(raw), cost, run_id, ""]], f"C{log_row}:G{log_row}", value_input_option="RAW")
+            self.runs_done += 1
+            self.profiles_found += len(raw)
             return normalise_items(raw)
         except ApifyError as e:
             log_ws.update([["failed", "", cost, run_id, str(e)[:300]]], f"C{log_row}:G{log_row}", value_input_option="RAW")
@@ -1412,11 +1422,25 @@ def run(cfg: Config, only: str = "", dry_run: bool = False) -> int:
     try:
         searcher.run_all(todo)
     except RunLimitReached as e:
+        if e.refused:
+            # Fail loudly (GitHub emails on a failed run): left alone, this would
+            # "succeed" every month while searching nothing.
+            log.error("HarvestAPI refused a run although its free allowance should have had %d left this month "
+                      "(%d done). The free runs may not reset monthly, or HarvestAPI changed its limits. "
+                      "Nothing more will be found until someone moves to a paid Apify plan or another source.",
+                      runs_left or 0, searcher.runs_done)
+            return 1
         log.warning("Stopped: %s. Companies not searched stay due for next month.", e)
     except BudgetReached as e:
         log.warning("Monthly budget reached (%s). Companies not searched stay due for next month.", e)
     except ApifyError as e:
         log.error("%s", e)
+        return 1
+    if searcher.runs_done >= 2 and searcher.profiles_found == 0:
+        # Two or more searches and nobody at all, at any company: the actor or LinkedIn
+        # has almost certainly changed, not every company emptied out at once.
+        log.error("%d searches returned nobody at all. The Apify actor (%s) or LinkedIn has probably changed; "
+                  "the tracker needs a look.", searcher.runs_done, ApifyClient.ACTOR)
         return 1
     log.info("Run complete: spent US$%.4f this month.", searcher.spent)
     return 0

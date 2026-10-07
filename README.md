@@ -147,3 +147,40 @@ Repository secrets:
 
 `python -m unittest test_find_hiring_managers -v`. Every API is mocked:
 running them spends nothing and never touches the sheet.
+
+## Running unattended (checked 8 Oct 2026)
+
+Built to run for years without anyone touching it:
+
+- **The schedule can't lapse.** GitHub switches off scheduled workflows in a
+  public repo after 60 days without commits; the workflow re-enables itself
+  every month.
+- **Python 3.13** (supported until October 2029) and the current major
+  versions of GitHub's checkout and Python-setup actions.
+- **Tests run before every search**, so a runner, Python or library change
+  fails the run before it touches the sheet.
+- **Failures are loud.** These fail the run, and GitHub emails the repo owner:
+  - a rejected key or sheet access;
+  - an Apify error;
+  - HarvestAPI refusing a run the script thought was allowed (its free
+    allowance has changed);
+  - two or more searches returning nobody at all (the actor or LinkedIn has
+    changed).
+  Running out of the month's free runs, or the budget, is normal and isn't a
+  failure.
+- **No surprise bills.** The Apify account is on the free plan, with no
+  payment method, so it can't be charged. The script also caps itself at
+  US$4.50 a month.
+
+What can still stop it, and what each needs:
+
+| Risk | What you'd see | Fix |
+|---|---|---|
+| HarvestAPI's 10 free runs turn out not to reset monthly | Failed run email in November 2026 | Paid Apify plan, or another source |
+| HarvestAPI or Apify retires or changes the actor, its pricing or its free limits | Failed run email | Pick another actor; update `ApifyClient` |
+| The Apify token is revoked or expires (if it was created with an expiry date) | Failed "Check keys" step | New token, then `gh secret set APIFY_TOKEN` |
+| The Google Cloud project `alumni-database-506007` or its service account key is deleted or disabled | Failed "Check keys" step | New key, then `gh secret set GOOGLE_SHEETS_CREDENTIALS` (and the Alumni Database's too) |
+| Someone renames or deletes the COMPANY or FULL NAME headers, or a tab | Failed run naming the missing header | Put the header back |
+| A company changes its LinkedIn page | That company shows "no results" in the Search Log every month | Update its LINKEDIN PAGE |
+| The repo owner's GitHub account goes away | Nothing runs | Transfer the repo to the MMSS organisation first |
+| Brandfetch changes its terms or retires the client ID | Logos go blank; searching is unaffected | New client ID in `BRANDFETCH_CLIENT_ID` |

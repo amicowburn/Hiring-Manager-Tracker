@@ -629,6 +629,25 @@ class TestSearcher(unittest.TestCase):
                          "refused companies get no row, so they stay due")
         self.assertEqual(s.runs_left, 0)
 
+    def test_refusal_is_marked_and_counted(self):
+        apify = self.apify(("SUCCEEDED", [harvest_row("A", "B", "Early Careers Lead")]), ("SUCCEEDED", []),
+                           message="success")
+        apify.wait.side_effect = [
+            {"status": "SUCCEEDED", "defaultDatasetId": "ds0", "usageTotalUsd": 0.0, "statusMessage": "success"},
+            {"status": "SUCCEEDED", "defaultDatasetId": "ds1", "usageTotalUsd": 0.0, "statusMessage": m.ApifyClient.REFUSED},
+        ]
+        s = m.Searcher(self.free_cfg(), self.sheet, apify, spent=0.0, runs_left=5)
+        with self.assertRaises(m.RunLimitReached) as ctx:
+            s.run_all(self.companies(10))
+        self.assertTrue(ctx.exception.refused)
+        self.assertEqual((s.runs_done, s.profiles_found), (1, 1))
+
+    def test_running_out_of_counted_runs_is_not_a_refusal(self):
+        s = m.Searcher(self.free_cfg(), self.sheet, self.apify(), spent=0.0, runs_left=0)
+        with self.assertRaises(m.RunLimitReached) as ctx:
+            s.run_all(self.companies(2))
+        self.assertFalse(ctx.exception.refused)
+
     def test_runs_this_month_skips_refused_and_last_month(self):
         c = m.ApifyClient("t", session=MagicMock(), sleep=lambda s: None)
         listing = {"data": {"items": [{"id": "a", "startedAt": "2026-10-07T12:00:00Z"},

@@ -11,6 +11,15 @@ on:
         required: false
         default: ''
 
+permissions:
+  contents: read
+  actions: write  # the keep-alive step re-enables this workflow's schedule
+
+# Never two runs at once: both would spend the same month's free Apify runs.
+concurrency:
+  group: hiring-manager-search
+  cancel-in-progress: false
+
 jobs:
   search:
     runs-on: ubuntu-latest
@@ -18,17 +27,24 @@ jobs:
 
     steps:
       - name: Checkout code
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
 
+      # 3.13 (supported to Oct 2029). 3.9 was dropped on 8 Oct 2026: it has no
+      # build for Ubuntu 26.04, so the run would break once ubuntu-latest moves.
       - name: Set up Python
-        uses: actions/setup-python@v5
+        uses: actions/setup-python@v7
         with:
-          python-version: '3.9'
+          python-version: '3.13'
 
       - name: Install dependencies
         run: |
           python -m pip install --upgrade pip
           pip install -r requirements.txt
+
+      # Catches a runner, Python or library change breaking the code before it
+      # touches the sheet. Fully mocked: no Apify spend, no sheet access.
+      - name: Run tests
+        run: python -m unittest test_find_hiring_managers
 
       - name: Create credentials.json from secret
         env:
@@ -51,3 +67,13 @@ jobs:
           GOOGLE_SHEETS_CREDENTIALS_FILE: credentials.json
           COMPANY: ${{ github.event.inputs.company }}
         run: python find_hiring_managers.py ${COMPANY:+--company "$COMPANY"}
+
+      # GitHub switches off scheduled workflows in a public repo after 60 days
+      # with no repository activity, and this repo has none: the runs write to
+      # the sheet, not the repo. Re-enabling the workflow each month resets that
+      # timer, so the schedule never lapses. Runs even if the search failed.
+      - name: Keep the schedule alive
+        if: always()
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh api -X PUT "repos/${{ github.repository }}/actions/workflows/monthly.yml/enable"
